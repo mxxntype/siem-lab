@@ -28,7 +28,7 @@
     3. `wazuh.dashboard`
 2. **Клиенты:** Один или более хост **Linux**, на котором [установлен и настроен Wazuh agent](https://documentation.wazuh.com/current/installation-guide/wazuh-agent/index.html). Допустим любой *серверный дистрибутив без GUI-интерфейса* - **Ubuntu**, **Debian**, **Arch**, **Void**.
 
-> [!Совет]
+> [!TIP]
 > Количество физических хостов в данном стенде не имеет значения, но вероятнее всего физический хост будет один. В таком случае, вот один из проверенных способов построить необходимую архитектуру:
 > 1. Серверную часть развернуть с помощью `docker compose` прямо на самом физическом хосте.
 > 2. Для клиентов подготовить обычные виртуальные машины под любым гипервизором, рекомендуется KVM/QEMU.
@@ -85,3 +85,24 @@
 ###### Инцидент №2: Мониторинг событий Docker
 
 `todo!()`
+
+#### Случайные записи
+
+###### Установка агента на Ubuntu server 22.04
+
+```bash
+# run as root!
+
+# Добавление репозитория с пакетами.
+curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import && chmod 644 /usr/share/keyrings/wazuh.gpg
+echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee -a /etc/apt/sources.list.d/wazuh.list
+apt-get update
+
+# Установка агента.
+WAZUH_MANAGER="192.168.122.221" apt-get install wazuh-agent
+
+# Включение сервиса агента.
+systemctl daemon-reload
+systemctl enable wazuh-agent
+systemctl start wazuh-agent
+```
