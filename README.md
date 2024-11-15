@@ -46,7 +46,7 @@
 
 1. [Brute-force атака на SSH сервер](https://documentation.wazuh.com/current/proof-of-concept-guide/detect-brute-force-attack.html)
 2. [Мониторинг событий Docker](https://documentation.wazuh.com/current/proof-of-concept-guide/monitoring-docker.html)
-3. [Обнаружение подозрительных процессов](https://documentation.wazuh.com/current/proof-of-concept-guide/detect-unauthorized-processes-netcat.html)
+3. [Обнаружение подозрительных исполняемых файлов](https://documentation.wazuh.com/current/proof-of-concept-guide/poc-detect-trojan.html)
 4. [Мониторинг целостности файловой системы](https://documentation.wazuh.com/current/proof-of-concept-guide/poc-file-integrity-monitoring.html)
 
 #### Ход работы
@@ -54,9 +54,9 @@
 > Всё администрирование серверной части и клиентов должно выполняться строго в командной строке. Доступ к виртуальным машинам осуществлять по SSH.
 > Единственные GUI-инструменты, которые допускается использовать - это те, что являются частью самого Wazuh. Всё остальное - строго в CLI.
 
-**ВАЖНО:** При установке и настройке всех хостов, следует дать пользователям и машинами уникальные имена - к примеру `ivanov_bsbo-01-22@ivanov_ii_siem0`, или что-то похожее. Для демонстрации работоспособности стенда необходимо будет прикрепить скриншоты из Wazuh Dashboard, а события там содержут множество полей с `hostname` и `username`, относящихся к инциденту.
+**ВАЖНО:** При установке и настройке всех хостов, следует дать пользователям и машинами уникальные имена - к примеру `ivanov_bsbo-01-22@ivanov_ii_siem0`, или что-то похожее. Для демонстрации работоспособности стенда необходимо будет прикрепить скриншоты из **Wazuh Dashboard**, а события там содержут множество полей с `hostname` и `username`, относящихся к инциденту.
 
-> Dashboard серверной части доступен по `https://localhost:443` и выглядит так:
+> **Dashboard** серверной части доступен по `https://localhost:443` и выглядит так:
 > ![[wazuh_dashboard.png]]
 > Первоначальные alerts скорее всего начнут появляться даже то того, как будет настроен и подключен первый агент.
 
@@ -64,7 +64,7 @@
 
 ![[wazuh_endpoints.png]]
 
-> События можно по-разному визуализировать, например так выглядит диаграмма `количество событий / уровень`:
+> События можно по-разному визуализировать, например так выглядит диаграмма **количество событий / уровень**:
 > ![[wazuh_visualization.png]]
 
 ###### Инцидент №1: Brute-force атака на SSH сервер
@@ -74,7 +74,7 @@
 > Запуск атаки на ВМ по адресу `192.168.122.221`:
 > ![[hydra_attack.png]]
 
-На dashboard'е сразу должны начать появляться множество Medium Severity предупреждений о неудачных попытках входа в систему. В разделе Threat Hunting можно подробнее рассмотреть эти угрозы:
+На dashboard'е сразу должны начать появляться множество **Medium Severity** предупреждений о неудачных попытках входа в систему. В разделе **Threat Hunting** можно подробнее рассмотреть эти угрозы:
 
 ![[wazuh_threat_hunting.png]]
 
@@ -82,11 +82,93 @@
 > ![[wazuh_ssh_event.png]]
 > Тут детально описан весь инцидент. Как можно видеть из поля `full_log`, некий пользователь (я) успешно вошел в систему по паролю.
 
-###### Инцидент №2: Мониторинг событий Docker
+###### Инцидент №2: Мониторинг событий **Docker**
 
-`todo!()`
+Для того чтобы включить мониторинг событий Docker, нужно включить модуль `docker-listener`. Для этого в конфигурационный файл `/var/ossec/etc/ossec.conf` нужно добавить следующие строки:
 
-#### Случайные записи
+```xml
+<ossec_config>
+  <wodle name="docker-listener">
+    <interval>10m</interval>
+    <attempts>5</attempts>
+    <run_on_start>yes</run_on_start>
+    <disabled>no</disabled>
+  </wodle>
+</ossec_config>
+```
+
+И перезапустить агент. После этого можно пошевелить Docker на клиенте, записи о событиях должны будут появиться в Wazuh:
+
+![[wazuh_docker_events.png]]
+
+> [!CAUTION]
+> На моём опыте, `docker-listener` какой-то нестабильный, работает через раз. В чём дело так и не разобрался, возможно криво настроил.
+
+###### Инцидент №3: Обнаружение подозрительных исполняемых файлов
+
+Аналогично предыдущему инциденту, в конфигурационный файл нужно добавить следующие строки:
+
+```xml
+<rootcheck>
+    <disabled>no</disabled>
+    <check_files>yes</check_files>
+
+    <!-- Line for trojans detection -->
+    <check_trojans>yes</check_trojans>
+
+    <check_dev>yes</check_dev>
+    <check_sys>yes</check_sys>
+    <check_pids>yes</check_pids>
+    <check_ports>yes</check_ports>
+    <check_if>yes</check_if>
+
+    <!-- Frequency that rootcheck is executed - every 12 hours -->
+    <frequency>43200</frequency>
+    <rootkit_files>/var/ossec/etc/shared/rootkit_files.txt</rootkit_files>
+    <rootkit_trojans>/var/ossec/etc/shared/rootkit_trojans.txt</rootkit_trojans>
+    <skip_nfs>yes</skip_nfs>
+</rootcheck>
+```
+
+После этого стоит подменить какой-нибудь файл в `/usr/bin` на что-то нестандартное, например поменять `/usr/bin/diff` на скрипт, который бы отправлял куда-нибудь примитивный HTTP запрос, а потом уже вызывал настоящий `cat`. После этого можно будет перезапустить агента, и увидеть предупреждения (`rule.id:510`) о подозрительных файлах:
+
+![[wazuh_trojans.png]]
+
+#### Инцидент №4: Мониторинг целостности файловой системы
+
+Сначала нужно включить `real-time` мониторинг для какой-нибудь директории клиента, для примера возьмём `/root`:
+
+```xml
+<directories check_all="yes" report_changes="yes" realtime="yes">/root</directories>
+```
+
+После перезапуска агента, пошевелим какие-нибудь файлы в рассматриваемой директории. Для примера:
+
+```bash
+#!/usr/bin/env bash
+
+sudo touch /root/file
+sync
+sleep 5
+
+sudo vim /root/file # Напишем "IMPORTANT!".
+sync
+sleep 5
+
+sudo rm /root/file
+sync
+```
+
+После этого, в Wazuh можно будет увидеть алерты об изменениях ФС:
+
+![[wazuh_fs_events.png]]
+
+> Для разнообразия, вот несколько диаграмм:
+> ![[wazuh_fs_charts.png]]
+
+---
+
+#### Шпаргалки
 
 ###### Развертывание серверной части через `docker compose` из репозитория:
 
@@ -101,8 +183,6 @@ docker compose up
 ###### Установка агента на Ubuntu server 22.04:
 
 ```bash
-# run as root!
-
 # Добавление репозитория с пакетами.
 curl -s https://packages.wazuh.com/key/GPG-KEY-WAZUH | gpg --no-default-keyring --keyring gnupg-ring:/usr/share/keyrings/wazuh.gpg --import && chmod 644 /usr/share/keyrings/wazuh.gpg
 echo "deb [signed-by=/usr/share/keyrings/wazuh.gpg] https://packages.wazuh.com/4.x/apt/ stable main" | tee -a /etc/apt/sources.list.d/wazuh.list
@@ -110,6 +190,8 @@ apt-get update
 
 # Установка агента.
 WAZUH_MANAGER="192.168.122.221" apt-get install wazuh-agent
+#              ^^^^^^^^^^^^^^^
+# ВАЖНО: Поменять на реальный адрес ВМ с клиентом!
 
 # Включение сервиса агента.
 systemctl daemon-reload
